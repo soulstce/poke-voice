@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 
 type Role = "user" | "assistant";
 
@@ -34,26 +34,50 @@ function nowLabel() {
   return new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
 
+function getRecognitionHelp(errorCode: string) {
+  switch (errorCode) {
+    case "service-not-allowed":
+      return "Voice recognition is blocked on this device or browser. Use typing below, or try Chrome on a supported desktop browser.";
+    case "not-allowed":
+      return "Microphone or speech permission was denied. Enable access and try again.";
+    case "audio-capture":
+      return "No microphone input was detected. Check your microphone and try again.";
+    case "network":
+      return "Speech recognition could not reach its service. You can still type a request below.";
+    case "no-speech":
+      return "No speech was detected. Try again and speak a little closer to the microphone.";
+    default:
+      return "Speech recognition paused. You can use the text composer below instead.";
+  }
+}
+
 export default function VoicePage() {
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       role: "assistant",
-      text: "Tap to talk. Poke Voice will listen, send your request to the orchestrator, and read the reply back aloud.",
+      text: "Tap to talk. Poke Voice listens, routes your request, and reads the reply back aloud.",
       time: nowLabel(),
       source: "system"
     }
   ]);
   const [transcript, setTranscript] = useState("");
+  const [composer, setComposer] = useState("");
   const [status, setStatus] = useState("Ready.");
+  const [recognitionHelp, setRecognitionHelp] = useState<string | null>(null);
   const [supportsRecognition, setSupportsRecognition] = useState(true);
   const [supportsSpeech, setSupportsSpeech] = useState(true);
   const [listening, setListening] = useState(false);
   const [speaking, setSpeaking] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [sessionId, setSessionId] = useState("session-pending");
   const recognitionRef = useRef<BrowserSpeechRecognition | null>(null);
   const speakingRef = useRef(false);
   const busyRef = useRef(false);
-  const [sessionId, setSessionId] = useState("session-pending");
+  const messagesRef = useRef(messages);
+
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
 
   useEffect(() => {
     const id =
@@ -73,11 +97,14 @@ export default function VoicePage() {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
+
     setSupportsSpeech(Boolean(window.speechSynthesis));
     const SpeechCtor = window.SpeechRecognition ?? window.webkitSpeechRecognition;
+
     if (!SpeechCtor) {
       setSupportsRecognition(false);
-      setStatus("Speech recognition is not available in this browser.");
+      setRecognitionHelp("Speech recognition is not available in this browser. Use the composer below or switch browsers.");
+      setStatus("Voice input unavailable.");
       return;
     }
 
@@ -89,6 +116,7 @@ export default function VoicePage() {
     recognition.onresult = (event: any) => {
       let interim = "";
       let finalText = "";
+
       for (let index = event.resultIndex; index < event.results.length; index += 1) {
         const result = event.results[index];
         const value = result[0]?.transcript ?? "";
@@ -98,13 +126,12 @@ export default function VoicePage() {
         }
       }
 
-      const trimmed = interim.trim();
-      setTranscript(trimmed);
+      setTranscript(interim.trim());
 
-      const finalTrimmed = finalText.trim();
-      if (finalTrimmed.length > 0) {
+      const completed = finalText.trim();
+      if (completed.length > 0) {
         recognition.stop();
-        void submitTranscript(finalTrimmed);
+        void submitMessage(completed);
       }
     };
 
@@ -117,7 +144,12 @@ export default function VoicePage() {
 
     recognition.onerror = (event: any) => {
       setListening(false);
-      setStatus("Speech error: " + event.error);
+      const message = getRecognitionHelp(event.error);
+      setRecognitionHelp(message);
+      if (event.error === "service-not-allowed" || event.error === "not-allowed") {
+        setSupportsRecognition(false);
+      }
+      setStatus("Speech input paused.");
     };
 
     recognitionRef.current = recognition;
@@ -126,7 +158,6 @@ export default function VoicePage() {
       recognition.abort();
       recognitionRef.current = null;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function speakReply(text: string, payload: any) {
@@ -134,9 +165,7 @@ export default function VoicePage() {
       const finish = () => {
         speakingRef.current = false;
         setSpeaking(false);
-        if (!busyRef.current) {
-          setStatus("Ready.");
-        }
+        if (!busyRef.current) setStatus("Ready.");
         resolve();
       };
 
@@ -146,7 +175,7 @@ export default function VoicePage() {
       const synth = typeof window !== "undefined" ? window.speechSynthesis : undefined;
 
       if (audioUrl || audioBase64) {
-        const source = audioUrl.length > 0 ? audioUrl : "data:" + audioMimeType + ";base64," + audioBase64;
+        const source = audioUrl.length > 0 ? audioUrl : `data:${audioMimeType};base64,${audioBase64}`;
         const audio = new Audio(source);
         speakingRef.current = true;
         setSpeaking(true);
@@ -158,7 +187,7 @@ export default function VoicePage() {
           }
           const utterance = new SpeechSynthesisUtterance(text);
           utterance.rate = 1;
-          utterance.pitch = 1.08;
+          utterance.pitch = 1.05;
           utterance.onend = finish;
           utterance.onerror = finish;
           speakingRef.current = true;
@@ -173,7 +202,7 @@ export default function VoicePage() {
           }
           const utterance = new SpeechSynthesisUtterance(text);
           utterance.rate = 1;
-          utterance.pitch = 1.08;
+          utterance.pitch = 1.05;
           utterance.onend = finish;
           utterance.onerror = finish;
           speakingRef.current = true;
@@ -191,7 +220,7 @@ export default function VoicePage() {
 
       const utterance = new SpeechSynthesisUtterance(text);
       utterance.rate = 1;
-      utterance.pitch = 1.08;
+      utterance.pitch = 1.05;
       utterance.onend = finish;
       utterance.onerror = finish;
       speakingRef.current = true;
@@ -201,8 +230,8 @@ export default function VoicePage() {
     });
   }
 
-  async function submitTranscript(spokenText: string) {
-    const trimmed = spokenText.trim();
+  async function submitMessage(rawText: string) {
+    const trimmed = rawText.trim();
     if (!trimmed) return;
 
     const userMessage: ChatMessage = {
@@ -212,18 +241,17 @@ export default function VoicePage() {
     };
 
     setBusy(true);
-    setStatus("Sending to Poke orchestrator...");
+    setStatus("Sending to Poke...");
     setMessages((current) => [...current, userMessage]);
 
     try {
-      const history = [...messages, userMessage];
       const response = await fetch("/api/poke", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           input: trimmed,
           transcript: trimmed,
-          history,
+          history: [...messagesRef.current, userMessage],
           sessionId
         })
       });
@@ -254,7 +282,7 @@ export default function VoicePage() {
         ...current,
         {
           role: "assistant",
-          text: "Voice bridge error: " + message,
+          text: `Voice bridge error: ${message}`,
           time: nowLabel(),
           source: "client"
         }
@@ -262,20 +290,25 @@ export default function VoicePage() {
       setStatus("Voice bridge error.");
     } finally {
       setBusy(false);
-      if (!speakingRef.current) {
-        setStatus("Ready.");
-      }
+      if (!speakingRef.current) setStatus("Ready.");
     }
   }
 
   function startListening() {
     const recognition = recognitionRef.current;
-    if (!recognition || listening || busy) return;
+    if (!recognition || listening || busy || !supportsRecognition) {
+      if (!supportsRecognition && !recognitionHelp) {
+        setRecognitionHelp("Speech recognition is not available in this browser. Use the composer below or switch browsers.");
+      }
+      return;
+    }
+
     if (speaking && typeof window !== "undefined" && window.speechSynthesis) {
       window.speechSynthesis.cancel();
       speakingRef.current = false;
       setSpeaking(false);
     }
+
     setTranscript("");
     setListening(true);
     setStatus("Listening...");
@@ -288,9 +321,7 @@ export default function VoicePage() {
   }
 
   function stopListening() {
-    const recognition = recognitionRef.current;
-    if (!recognition) return;
-    recognition.stop();
+    recognitionRef.current?.stop();
   }
 
   function toggleTalk() {
@@ -301,97 +332,130 @@ export default function VoicePage() {
     startListening();
   }
 
-  const latestMessages = messages.slice(-4);
-  const readyLabel = supportsRecognition ? "Speech ready" : "Speech unavailable";
+  function onComposerSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    void submitMessage(composer);
+    setComposer("");
+  }
+
+  const latestMessages = messages.slice(-5);
+  const recognitionStatus = supportsRecognition ? (listening ? "Listening" : "Available") : "Unavailable";
+  const speechStatus = supportsSpeech ? (speaking ? "Speaking" : "Enabled") : "Unavailable";
 
   return (
-    <main className="voice-app">
-      <section className="voice-panel">
-        <header className="topline">
-          <div className="brand">
-            <div className="badge">PV</div>
+    <main className="voice-shell">
+      <section className="voice-frame glass-panel">
+        <header className="topbar">
+          <div className="brand-lockup">
+            <div className="brand-mark">PV</div>
             <div>
-              <div className="kicker">Poke Voice</div>
-              <h1>Real-time voice interface for Poke</h1>
-              <p className="lead">
-                Tap to talk, get a spoken reply, and keep the conversation moving without touching the keyboard.
+              <div className="eyebrow">Poke Voice</div>
+              <h1>Professional voice control for Poke</h1>
+              <p className="lede">
+                A dark, glassy tap-to-talk workspace with resilient speech fallbacks for iOS and browsers that block the Web Speech API.
               </p>
             </div>
           </div>
-          <div className="status-pill">{status}</div>
+          <div className="status-chip">{status}</div>
         </header>
 
-        <div className="hero-grid">
-          <div className="mic-stage">
+        <div className="workspace-grid">
+          <section className="hero-stage glass-card">
             <div className={listening || speaking ? "voice-orb active" : "voice-orb"}>
-              <div className="orb-ring one" />
-              <div className="orb-ring two" />
-              <div className="orb-ring three" />
-              <div className="voice-wave" aria-hidden="true">
-                {Array.from({ length: 6 }).map((_, index) => (
-                  <span
-                    key={index}
-                    className={listening || speaking ? "wave-bar live" : "wave-bar"}
-                    style={{ left: 16 + index * 12 + "%", animationDelay: index * 0.12 + "s" }}
-                  />
-                ))}
-              </div>
+              <span className="orb-ring ring-a" />
+              <span className="orb-ring ring-b" />
+              <span className="orb-ring ring-c" />
+              <span className="orb-glow" />
               <button
                 type="button"
-                className={
-                  listening
-                    ? "talk-button listening"
-                    : speaking
-                      ? "talk-button speaking"
-                      : "talk-button"
-                }
+                className={listening ? "talk-button listening" : speaking ? "talk-button speaking" : "talk-button"}
                 onClick={toggleTalk}
                 aria-label="Tap to talk"
               >
-                <div>
-                  <strong>{listening ? "Listening" : speaking ? "Speaking" : "Tap to talk"}</strong>
-                  <span>{listening ? "Release when you are done" : supportsRecognition ? "Voice first, hands free" : readyLabel}</span>
-                </div>
+                <span className="talk-label">TAP TO TALK</span>
+                <span className="talk-subtitle">Voice first, keyboard ready when needed</span>
               </button>
             </div>
-          </div>
 
-          <aside className="side-card">
-            <div className="mini-stat">
-              <label>Current transcript</label>
-              <strong>{transcript.length > 0 ? transcript : "Waiting for speech input"}</strong>
-              <p>Live transcription uses the browser Web Speech API before sending text to the orchestrator.</p>
+            <div className="stage-note-row">
+              <span className="stage-note">Session {sessionId.slice(0, 8)}</span>
+              <span className="stage-note">{recognitionStatus}</span>
+              <span className="stage-note">{speechStatus}</span>
             </div>
-            <div className="chat-list" aria-live="polite">
-              {latestMessages.map((message, index) => (
-                <article key={index} className={message.role === "user" ? "message user" : "message assistant"}>
-                  <div className="meta-row">
-                    <span>{message.role === "user" ? "You" : "Poke"}</span>
-                    <span>{message.time}</span>
-                  </div>
-                  <p>{message.text}</p>
-                  {message.source ? <p className="source-line">{message.source}</p> : null}
-                </article>
-              ))}
-            </div>
+
+            {recognitionHelp ? <div className="notice">{recognitionHelp}</div> : null}
+          </section>
+
+          <aside className="sidebar stack-lg">
+            <section className="glass-card stack-md">
+              <div className="card-head">
+                <div>
+                  <div className="section-label">Transcript</div>
+                  <h2>Live speech capture</h2>
+                </div>
+                <div className={transcript ? "mini-pill live" : "mini-pill"}>{transcript ? "Live" : "Idle"}</div>
+              </div>
+              <p className="transcript-text">{transcript.length > 0 ? transcript : "Waiting for speech input."}</p>
+            </section>
+
+            <section className="glass-card stack-md">
+              <div className="card-head">
+                <div>
+                  <div className="section-label">Text fallback</div>
+                  <h2>Type if speech is blocked</h2>
+                </div>
+              </div>
+              <form className="composer" onSubmit={onComposerSubmit}>
+                <textarea
+                  value={composer}
+                  onChange={(e) => setComposer(e.target.value)}
+                  placeholder="Type a message to Poke"
+                  rows={4}
+                />
+                <button className="send-button" type="submit" disabled={busy || composer.trim().length === 0}>
+                  Send
+                </button>
+              </form>
+            </section>
+
+            <section className="glass-card stack-md">
+              <div className="card-head">
+                <div>
+                  <div className="section-label">Conversation</div>
+                  <h2>Recent messages</h2>
+                </div>
+              </div>
+              <div className="message-list" aria-live="polite">
+                {latestMessages.map((message, index) => (
+                  <article key={index} className={message.role === "user" ? "message user" : "message assistant"}>
+                    <div className="message-meta">
+                      <span>{message.role === "user" ? "You" : "Poke"}</span>
+                      <span>{message.time}</span>
+                    </div>
+                    <p>{message.text}</p>
+                    {message.source ? <div className="message-source">{message.source}</div> : null}
+                  </article>
+                ))}
+              </div>
+            </section>
           </aside>
         </div>
 
         <footer className="footer-grid">
-          <div className="mini-stat">
-            <label>Speech recognition</label>
-            <strong>{supportsRecognition ? "Enabled" : "Unavailable"}</strong>
-            <p>The app listens with the browser SpeechRecognition API when the browser supports it.</p>
+          <div className="glass-card stat-card">
+            <span className="section-label">Recognition</span>
+            <strong>{recognitionStatus}</strong>
+            <p>Uses SpeechRecognition when the browser allows it, and cleanly falls back when it does not.</p>
           </div>
-          <div className="mini-stat">
-            <label>Speech synthesis</label>
-            <strong>{supportsSpeech ? "Enabled" : "Unavailable"}</strong>
-            <p>Replies are played back with SpeechSynthesis, or via audio if the orchestrator sends a clip.</p>
+          <div className="glass-card stat-card">
+            <span className="section-label">Playback</span>
+            <strong>{speechStatus}</strong>
+            <p>Replies are spoken with SpeechSynthesis when available, with audio URL/base64 fallback support.</p>
           </div>
-          <div className="mini-stat">
-            <label>Session</label>
-            <strong>{sessionId.slice(0, 8)}</strong>
-            <p>Each tab gets a lightweight voice session to keep command history coherent.</p>
+          <div className="glass-card stat-card">
+            <span className="section-label">Route</span>
+            <strong>/api/poke</strong>
+            <p>Messages are sent to the Poke orchestrator through the server bridge for a live response.</p>
           </div>
         </footer>
       </section>
