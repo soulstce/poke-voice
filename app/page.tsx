@@ -30,6 +30,7 @@ declare global {
   }
 }
 
+// Redeploy marker: fresh production deployment after env vars were set.
 function nowLabel() {
   return new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
