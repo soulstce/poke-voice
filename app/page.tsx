@@ -34,14 +34,34 @@ function nowLabel() {
   return new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
 
+function detectSpeechRestrictions() {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  const isSecure = window.isSecureContext;
+  const isIOS = /iP(hone|ad|od)/.test(navigator.userAgent);
+  const isSafari = /Safari/i.test(navigator.userAgent) && !/Chrome|CriOS|FxiOS|EdgiOS/i.test(navigator.userAgent);
+
+  if (!isSecure) {
+    return "This page is not running in a secure context. Web Speech and microphone access usually require HTTPS.";
+  }
+
+  if (isIOS && isSafari) {
+    return "iOS Safari can block Web Speech with service-not-allowed. Tap Allow Microphone if prompted, or use the text composer below when speech is restricted.";
+  }
+
+  return null;
+}
+
 function helpMessageFor(errorCode: string) {
   switch (errorCode) {
     case "service-not-allowed":
-      return "Speech recognition is blocked on this browser or device. Use the text composer below, or try a supported desktop browser.";
+      return "Speech recognition is blocked by the browser or device. On iOS Safari, check that the page is on HTTPS, then allow microphone access if prompted. If speech remains unavailable, use the text composer below.";
     case "not-allowed":
-      return "Microphone permission was denied. Enable access and try again.";
+      return "Microphone permission was denied. Open browser settings, allow microphone access, then try again.";
     case "audio-capture":
-      return "No microphone input was detected. Check the input device and try again.";
+      return "No microphone input was detected. Check the microphone and try again.";
     case "network":
       return "Speech recognition could not reach its service. Text input is still available.";
     case "no-speech":
@@ -100,10 +120,18 @@ export default function VoicePage() {
 
     setSupportsSpeech(Boolean(window.speechSynthesis));
     const SpeechCtor = window.SpeechRecognition ?? window.webkitSpeechRecognition;
+    const contextWarning = detectSpeechRestrictions();
+
+    if (contextWarning) {
+      setRecognitionHelp(contextWarning);
+    }
 
     if (!SpeechCtor) {
       setSupportsRecognition(false);
-      setRecognitionHelp("Speech recognition is not available in this browser. Use the composer below or switch browsers.");
+      setRecognitionHelp(
+        contextWarning ??
+          "Speech recognition is not available in this browser. Use the composer below or switch browsers."
+      );
       setStatus("Voice input unavailable.");
       return;
     }
@@ -307,6 +335,14 @@ export default function VoicePage() {
       window.speechSynthesis.cancel();
       speakingRef.current = false;
       setSpeaking(false);
+    }
+
+    if (!window.isSecureContext) {
+      setRecognitionHelp(
+        "This page is not in a secure context. Open the app over HTTPS so microphone and Web Speech can work correctly."
+      );
+      setStatus("Secure context required.");
+      return;
     }
 
     setTranscript("");
