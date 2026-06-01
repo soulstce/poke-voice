@@ -34,20 +34,20 @@ function nowLabel() {
   return new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
 
-function getRecognitionHelp(errorCode: string) {
+function helpMessageFor(errorCode: string) {
   switch (errorCode) {
     case "service-not-allowed":
-      return "Voice recognition is blocked on this device or browser. Use typing below, or try Chrome on a supported desktop browser.";
+      return "Speech recognition is blocked on this browser or device. Use the text composer below, or try a supported desktop browser.";
     case "not-allowed":
-      return "Microphone or speech permission was denied. Enable access and try again.";
+      return "Microphone permission was denied. Enable access and try again.";
     case "audio-capture":
-      return "No microphone input was detected. Check your microphone and try again.";
+      return "No microphone input was detected. Check the input device and try again.";
     case "network":
-      return "Speech recognition could not reach its service. You can still type a request below.";
+      return "Speech recognition could not reach its service. Text input is still available.";
     case "no-speech":
       return "No speech was detected. Try again and speak a little closer to the microphone.";
     default:
-      return "Speech recognition paused. You can use the text composer below instead.";
+      return "Voice input paused. You can still send a message using the composer below.";
   }
 }
 
@@ -55,7 +55,7 @@ export default function VoicePage() {
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       role: "assistant",
-      text: "Tap to talk. Poke Voice listens, routes your request, and reads the reply back aloud.",
+      text: "Tap to talk. Poke Voice listens, sends your request, and speaks the response back.",
       time: nowLabel(),
       source: "system"
     }
@@ -119,10 +119,10 @@ export default function VoicePage() {
 
       for (let index = event.resultIndex; index < event.results.length; index += 1) {
         const result = event.results[index];
-        const value = result[0]?.transcript ?? "";
-        interim += value;
+        const transcriptValue = result[0]?.transcript ?? "";
+        interim += transcriptValue;
         if (result.isFinal) {
-          finalText += value;
+          finalText += transcriptValue;
         }
       }
 
@@ -144,7 +144,7 @@ export default function VoicePage() {
 
     recognition.onerror = (event: any) => {
       setListening(false);
-      const message = getRecognitionHelp(event.error);
+      const message = helpMessageFor(event.error);
       setRecognitionHelp(message);
       if (event.error === "service-not-allowed" || event.error === "not-allowed") {
         setSupportsRecognition(false);
@@ -187,7 +187,7 @@ export default function VoicePage() {
           }
           const utterance = new SpeechSynthesisUtterance(text);
           utterance.rate = 1;
-          utterance.pitch = 1.05;
+          utterance.pitch = 1.04;
           utterance.onend = finish;
           utterance.onerror = finish;
           speakingRef.current = true;
@@ -202,7 +202,7 @@ export default function VoicePage() {
           }
           const utterance = new SpeechSynthesisUtterance(text);
           utterance.rate = 1;
-          utterance.pitch = 1.05;
+          utterance.pitch = 1.04;
           utterance.onend = finish;
           utterance.onerror = finish;
           speakingRef.current = true;
@@ -220,7 +220,7 @@ export default function VoicePage() {
 
       const utterance = new SpeechSynthesisUtterance(text);
       utterance.rate = 1;
-      utterance.pitch = 1.05;
+      utterance.pitch = 1.04;
       utterance.onend = finish;
       utterance.onerror = finish;
       speakingRef.current = true;
@@ -312,6 +312,7 @@ export default function VoicePage() {
     setTranscript("");
     setListening(true);
     setStatus("Listening...");
+
     try {
       recognition.start();
     } catch {
@@ -334,8 +335,10 @@ export default function VoicePage() {
 
   function onComposerSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    void submitMessage(composer);
+    const text = composer.trim();
+    if (!text) return;
     setComposer("");
+    void submitMessage(text);
   }
 
   const latestMessages = messages.slice(-5);
@@ -352,7 +355,7 @@ export default function VoicePage() {
               <div className="eyebrow">Poke Voice</div>
               <h1>Professional voice control for Poke</h1>
               <p className="lede">
-                A dark, glassy tap-to-talk workspace with resilient speech fallbacks for iOS and browsers that block the Web Speech API.
+                A dark, frosted, Prewire-style voice workspace with resilient speech fallbacks for iOS and browsers that block the Web Speech API.
               </p>
             </div>
           </div>
@@ -362,18 +365,22 @@ export default function VoicePage() {
         <div className="workspace-grid">
           <section className="hero-stage glass-card">
             <div className={listening || speaking ? "voice-orb active" : "voice-orb"}>
-              <span className="orb-ring ring-a" />
-              <span className="orb-ring ring-b" />
-              <span className="orb-ring ring-c" />
-              <span className="orb-glow" />
+              <div className="orb-shell" />
+              <div className="orb-core" />
+              <div className="orb-rings" aria-hidden="true">
+                <span className="ring ring-a" />
+                <span className="ring ring-b" />
+                <span className="ring ring-c" />
+              </div>
               <button
                 type="button"
                 className={listening ? "talk-button listening" : speaking ? "talk-button speaking" : "talk-button"}
                 onClick={toggleTalk}
                 aria-label="Tap to talk"
               >
-                <span className="talk-label">TAP TO TALK</span>
-                <span className="talk-subtitle">Voice first, keyboard ready when needed</span>
+                <span className="button-surface" />
+                <span className="button-label">TAP TO TALK</span>
+                <span className="button-copy">Voice first. Keyboard fallback included.</span>
               </button>
             </div>
 
@@ -445,7 +452,7 @@ export default function VoicePage() {
           <div className="glass-card stat-card">
             <span className="section-label">Recognition</span>
             <strong>{recognitionStatus}</strong>
-            <p>Uses SpeechRecognition when the browser allows it, and cleanly falls back when it does not.</p>
+            <p>Uses SpeechRecognition when the browser allows it, with a text fallback when it does not.</p>
           </div>
           <div className="glass-card stat-card">
             <span className="section-label">Playback</span>
