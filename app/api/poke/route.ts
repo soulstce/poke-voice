@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 type Body = {
   input?: string;
@@ -10,22 +9,8 @@ type Body = {
   sessionId?: string;
 };
 
-function pickEndpoint() {
-  return (
-    process.env.POKE_ORCHESTRATOR_URL?.trim() ||
-    process.env.POKE_BACKEND_URL?.trim() ||
-    process.env.POKE_API_URL?.trim() ||
-    ""
-  );
-}
-
-function pickToken() {
-  return (
-    process.env.POKE_ORCHESTRATOR_TOKEN?.trim() ||
-    process.env.POKE_BACKEND_TOKEN?.trim() ||
-    process.env.POKE_API_TOKEN?.trim() ||
-    ""
-  );
+export async function GET() {
+  return NextResponse.json({ ok: true, route: "/api/poke", method: "GET" });
 }
 
 export async function POST(request: Request) {
@@ -36,20 +21,14 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Missing input." }, { status: 400 });
   }
 
-  const endpoint = pickEndpoint();
-  const token = pickToken();
+  const endpoint = process.env.POKE_ORCHESTRATOR_URL?.trim();
+  const token = process.env.POKE_ORCHESTRATOR_TOKEN?.trim();
 
   if (!endpoint) {
-    return NextResponse.json(
-      {
-        reply:
-          "I heard: " +
-          input +
-          ". Set POKE_ORCHESTRATOR_URL (or POKE_BACKEND_URL) to connect this app to Poke's backend.",
-        source: "fallback"
-      },
-      { status: 200 }
-    );
+    return NextResponse.json({
+      reply: "I heard: " + input + ". Set POKE_ORCHESTRATOR_URL to connect this app to the live Poke orchestrator.",
+      source: "fallback"
+    });
   }
 
   try {
@@ -64,8 +43,7 @@ export async function POST(request: Request) {
         transcript: input,
         history: body.history ?? [],
         sessionId: body.sessionId ?? null
-      }),
-      cache: "no-store"
+      })
     });
 
     const contentType = upstream.headers.get("content-type") ?? "";
