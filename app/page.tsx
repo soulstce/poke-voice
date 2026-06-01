@@ -53,12 +53,15 @@ export default function VoicePage() {
   const recognitionRef = useRef<BrowserSpeechRecognition | null>(null);
   const speakingRef = useRef(false);
   const busyRef = useRef(false);
-  const [sessionId] = useState(() => {
-    if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
-      return crypto.randomUUID();
-    }
-    return "session-" + Date.now().toString(36);
-  });
+  const [sessionId, setSessionId] = useState("session-pending");
+
+  useEffect(() => {
+    const id =
+      typeof crypto !== "undefined" && "randomUUID" in crypto
+        ? crypto.randomUUID()
+        : "session-" + Math.random().toString(36).slice(2, 10);
+    setSessionId(id);
+  }, []);
 
   useEffect(() => {
     busyRef.current = busy;
